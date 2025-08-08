@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>目覚まし（秒0固定・スライダー式時刻設定）</title>
+<style>
+  body{background:#222;color:#eee;font-family:sans-serif;text-align:center;padding:1em;}
+  #player{width:1px;height:1px;position:absolute;left:-9999px;top:-9999px;}
+  label{display:block;margin:1em 0 0.3em;}
+  .slider-container{display:flex;align-items:center;justify-content:center;gap:0.5em;}
+  input[type=range]{width:150px;}
+  .val{width:30px;text-align:center;}
+</style>
+</head>
+<body>
+
+<h1>目覚まし</h1>
+
+<label>時
+  <div class="slider-container">
+    <input type="range" id="h" min="0" max="23" value="0">
+    <span class="val" id="hv">0</span>
+  </div>
+</label>
+
+<label>分
+  <div class="slider-container">
+    <input type="range" id="m" min="0" max="59" value="0">
+    <span class="val" id="mv">0</span>
+  </div>
+</label>
+
+<!-- 秒は0秒固定なので表示なし -->
+
+<br>
+
+<input type="file" id="file" accept="audio/*"><br><br>
+<input type="text" id="yt" placeholder="YouTube URL"><br><br>
+
+<button id="set" disabled>セット</button>
+<button id="clear" disabled>解除</button>
+
+<div id="st"></div>
+
+<div id="player"></div>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+  const h=document.getElementById('h'), m=document.getElementById('m');
+  const hv=document.getElementById('hv'), mv=document.getElementById('mv');
+
+  h.addEventListener('input',()=>{ hv.textContent = h.value; });
+  m.addEventListener('input',()=>{ mv.textContent = m.value; });
+
+  const file=document.getElementById('file'), yt=document.getElementById('yt'), setBtn=document.getElementById('set'), clearBtn=document.getElementById('clear'), st=document.getElementById('st');
+  let ac, buf, src, gain, player, ytid, usingYT=false, alarmTimeout;
+
+  function onYouTubeIframeAPIReady(){
+    player=new YT.Player('player',{
+      height:'1', width:'1', videoId:'', 
+      playerVars:{autoplay:0, controls:0, rel:0, iv_load_policy:3, disablekb:1, playsinline:1}
+    });
+  }
+
+  file.onchange=()=>{
+    if(file.files.length){
+      usingYT=false; yt.value=''; setBtn.disabled=false; st.textContent='曲ファイル選択済';
+      if(ac) ac.close(); ac=null; buf=null;
+      const r=new FileReader();
+      r.onload=e=>{
+        ac=new AudioContext();
+        ac.decodeAudioData(e.target.result).then(b=>{buf=b; st.textContent='曲ファイル読み込み完了';});
+      };
+      r.readAsArrayBuffer(file.files[0]);
+    }else setBtn.disabled=true;
+  };
+
+  yt.oninput=()=>{
+    const val=yt.value.trim();
+    const m1=val.match(/[?&]v=([^&]+)/)||val.match(/youtu\.be\/([^?&]+)/);
+    if(m1&&m1[1]){
+      ytid=m1[1]; usingYT=true; file.value=''; setBtn.disabled=false; st.textContent='YouTube動画セット';
+      if(player&&player.loadVideoById) player.loadVideoById('');
+    }else{
+      usingYT=false; ytid=null; setBtn.disabled=true; st.textContent='不正なYouTubeリンク';
+    }
+  };
+
+  function playFile(){
+    if(!buf||!ac)return;
+    src=ac.createBufferSource();
+    gain=ac.createGain();
+    src.buffer=buf;
+    gain.gain.value=1.8;
+    src.connect(gain);
+    gain.connect(ac.destination);
+    src.start();
+    st.textContent='再生中（ファイル）';
+  }
+
+  function stopFile(){
+    if(src){src.stop(); src.disconnect(); src=null;}
+    if(gain){gain.disconnect(); gain=null;}
+    if(ac){ac.close(); ac=null;}
+  }
+
+  function playYT(){
+    if(!player||!ytid)return;
+    player.loadVideoById(ytid);
+    player.setVolume(100);
+    player.playVideo();
+    st.textContent='再生中（YouTube）';
+  }
+
+  function stopYT(){
+    if(player) player.stopVideo();
+  }
+
+  setBtn.onclick=()=>{
+    const time=`${h.value.padStart(2,'0')}:${m.value.padStart(2,'0')}:00`;
+    st.textContent=`アラームセット ${time}`;
+    setBtn.disabled=true; clearBtn.disabled=false;
+    const now=new Date();
+    let at=new Date();
+    at.setHours(+h.value, +m.value, 0, 0);
+    if(at<=now) at.setDate(at.getDate()+1);
+    const diff=at-now;
+    alarmTimeout=setTimeout(()=>{
+      if(usingYT) playYT(); else playFile();
+      setBtn.disabled=false; clearBtn.disabled=true;
+    },diff);
+  };
+
+  clearBtn.onclick=()=>{
+    clearTimeout(alarmTimeout);
+    stopFile();
+    stopYT();
+    st.textContent='アラーム解除';
+    setBtn.disabled=false; clearBtn.disabled=true;
+  };
+
+  setInterval(()=>{
+    const now=new Date();
+    st.textContent=st.textContent.startsWith('再生中')||st.textContent.startsWith('アラーム') ? st.textContent : now.toLocaleTimeString();
+  },1000);
+</script>
+
+</body>
+</html>
